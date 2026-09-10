@@ -12,12 +12,16 @@ import datetime
 
 import matplotlib.pyplot as plt
 
-# --- 確実な文字化け対策 ---
-# クラウド（japanize_matplotlib有）とローカル（無）を自動判別し、設定を上書きしない
+# --- 確実な文字化け対策（プログラム自身による強制インストール） ---
 try:
     import japanize_matplotlib
 except ImportError:
-    plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
+    import subprocess
+    import sys
+
+    # クラウドサーバーが部品の読み込みをサボった場合、ここで強制的にインストールさせます
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "japanize-matplotlib"])
+    import japanize_matplotlib
 
 # ==========================================
 # 状態管理（セッションステート）の初期化
@@ -263,7 +267,7 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close(fig)
-    buf.seek(0)  # 修正: 画像データの巻き戻し
+    buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
