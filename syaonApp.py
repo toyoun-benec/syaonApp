@@ -9,7 +9,14 @@ import io
 import base64
 from collections import Counter
 import datetime
+
+# グラフ描画用・文字化け対策（グローバル適用）
 import matplotlib.pyplot as plt
+
+try:
+    import japanize_matplotlib
+except ImportError:
+    plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
 
 # ==========================================
 # 状態管理（セッションステート）の初期化
@@ -100,6 +107,8 @@ def clear_data():
     st.session_state.excel_data = None
     st.session_state.html_content = None
     st.session_state.macro_data = None
+    if "comparison_figs" in st.session_state: del st.session_state.comparison_figs
+    if "individual_figs" in st.session_state: del st.session_state.individual_figs
 
 
 def split_room_name(room_str):
@@ -121,14 +130,8 @@ def map_macro_category(mode):
     return mode
 
 
-# --- HTML埋め込み用のグラフ画像生成関数 ---
+# --- HTML・画面表示用の個別グラフ画像生成関数 ---
 def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, sn_mask, grade_str, det_freq, eval_num):
-    try:
-        import japanize_matplotlib
-    except ImportError:
-        plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'Hiragino Maru Gothic Pro', 'Hiragino Sans',
-                                       'sans-serif']
-
     fig, ax = plt.subplots(figsize=(6, 8))
     is_floor = "床衝撃音" in mode
     sn_mask = np.array(sn_mask)
@@ -136,7 +139,7 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     if is_floor:
         x_labels = ['31.5', '63', '125', '250', '500', '1k', '2k', '4k']
         x_ticks = np.arange(8)
-        x_ticks_curve = np.arange(1, 8)  # 63Hz〜4kHz
+        x_ticks_curve = np.arange(1, 8)
         ref_50 = np.array([73, 63, 56, 50, 47, 46, 46])
         m_intervals = 10
         n_intervals = 7
@@ -145,7 +148,6 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
         line_color = 'red'
         ax.set_ylabel('床衝撃音レベル (dB)')
 
-        # 11本固定。はみ出す場合のみ枠ごとシフト
         max_v, min_v = max(values), min(values)
         if max_v > 100:
             y_max = math.ceil(max_v / 10) * 10
@@ -158,7 +160,6 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
         curve_start = 35 + y_shift
         curve_end = 85 + y_shift
 
-        # 評価曲線の描画
         for val in range(curve_start, curve_end + 5, 5):
             c_vals = ref_50 + (val - 50)
             if np.any((c_vals >= y_min) & (c_vals <= y_max)):
@@ -169,13 +170,12 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     else:
         x_labels = ['63', '125', '250', '500', '1k', '2k', '4k']
         x_ticks = np.arange(7)
-        x_ticks_curve = np.arange(1, 7)  # 125Hz〜4kHz
+        x_ticks_curve = np.arange(1, 7)
         ref_50 = np.array([35, 42.5, 50, 55, 60, 60])
         n_intervals = 6
         line_color = 'blue'
         ax.set_ylabel('音圧レベル差 (dB)')
 
-        # 室間レベル差は31.5Hzのデータ(先頭)を除外して7個に合わせる
         values = values[1:]
         sn_mask = sn_mask[1:]
 
@@ -183,7 +183,6 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
             m_intervals = 8
             y_min, y_max = 0, 80
             curve_label_prefix = 'Dr-'
-            # JISはシフトなし・Dr-30〜Dr-60の完全固定
             for val in range(30, 65, 5):
                 c_vals = ref_50 + (val - 50)
                 if np.any((c_vals >= y_min) & (c_vals <= y_max)):
@@ -194,7 +193,6 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
             m_intervals = 9
             y_min, y_max = 0, 90
             curve_label_prefix = 'D-'
-            # AIJはシフトなし・完全固定
             aij_curves = {
                 'D-15': np.array([10., 12.5, 15., 15., 15., 15.]),
                 'D-20': np.array([10., 15., 20., 20., 20., 20.]),
@@ -217,33 +215,27 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
             for lbl, c_vals in aij_curves.items():
                 if np.any((c_vals >= y_min) & (c_vals <= y_max)):
                     ax.plot(x_ticks_curve, c_vals, color='black', linewidth=0.8)
-
-                    # AIJの D-80, D-85 は左側（125Hz手前）に配置して文字被りを防ぐ
+                    label_y = c_vals[-1]
                     if lbl in ['D-80', 'D-85']:
-                        # x=0.5 (63Hzと125Hzの中間), y=c_vals[0] (曲線のスタート高さ)
                         ax.text(0.5, c_vals[0], lbl, va='center', ha='center', fontsize=10, fontweight='bold')
                     else:
-                        # それ以外は右側に配置
-                        ax.text(x_ticks_curve[-1] + 0.1, c_vals[-1], lbl, va='center', ha='left', fontsize=10)
+                        if lbl == 'D-75': label_y = 83
+                        ax.text(x_ticks_curve[-1] + 0.1, label_y, lbl, va='center', ha='left', fontsize=10)
 
-    # 測定データの描画 (S/N比でマーカーを描き分け)
     valid_mask = ~sn_mask
     invalid_mask = sn_mask
     vals_arr = np.array(values)
 
     ax.plot(x_ticks, values, color=line_color, linewidth=2.0, zorder=2)
 
-    # 6dB以上 (有効: 塗りつぶし)
     if np.any(valid_mask):
         ax.plot(x_ticks[valid_mask], vals_arr[valid_mask], marker='o', linestyle='', color=line_color,
                 markerfacecolor=line_color, markersize=6, zorder=3)
-    # 6dB未満 (除外: 白抜き)
     if np.any(invalid_mask):
         ax.plot(x_ticks[invalid_mask], vals_arr[invalid_mask], marker='o', linestyle='', color=line_color,
                 markerfacecolor='white', markeredgewidth=1.5, markersize=6, zorder=3)
 
     for i, v in enumerate(values):
-        # グラフ上の数値を四捨五入して整数で表示
         ax.text(i + 0.15, v, f"{int(round_half_up(v))}", color=line_color, fontsize=10, va='center')
 
     ax.set_xticks(x_ticks)
@@ -253,11 +245,8 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     ax.set_yticks(np.arange(y_min, y_max + 1, 10))
     ax.grid(True, which='both', axis='both', color='gray', linestyle='-', linewidth=0.5)
     ax.set_xlabel('オクターブバンド中心周波数(Hz)')
-
-    # 縦横比を 10dB:1バンド = 4:3 に強制設定
     ax.set_box_aspect((m_intervals * 4) / (n_intervals * 3))
 
-    # タイトルの生成（グラフ用等級表記に変換）
     if grade_str != "計算不可":
         grade_num = re.search(r'\d+', grade_str).group()
         graph_grade_str = f"{curve_label_prefix}{grade_num}"
@@ -268,6 +257,146 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     num_label = "L数" if is_floor else "D数"
     title_str = f"測定番号: {case_name}{room_info}\n判定: {graph_grade_str}    {num_label}: {eval_num} [{det_freq}]"
     ax.set_title(title_str, pad=15, fontweight='bold')
+
+    plt.tight_layout()
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=100)
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode('utf-8')
+
+
+# --- 現場確認用の比較グラフ生成関数 ---
+def generate_comparison_graph_base64(mode, is_jis, items_list):
+    fig, ax = plt.subplots(figsize=(8, 8))
+    is_floor = "床衝撃音" in mode
+
+    if is_floor:
+        x_labels = ['31.5', '63', '125', '250', '500', '1k', '2k', '4k']
+        x_ticks = np.arange(8)
+        x_ticks_curve = np.arange(1, 8)
+        ref_50 = np.array([73, 63, 56, 50, 47, 46, 46])
+        m_intervals = 10
+        n_intervals = 7
+        y_min, y_max = 10, 110
+        curve_label_prefix = 'Lr-' if is_jis else 'L-'
+        ax.set_ylabel('床衝撃音レベル (dB)')
+
+        all_vals = []
+        for item in items_list:
+            all_vals.extend(item["_raw_values"])
+
+        if all_vals:
+            max_v, min_v = max(all_vals), min(all_vals)
+            if max_v > 100:
+                y_max = math.ceil(max_v / 10) * 10
+                y_min = y_max - 100
+            elif min_v < 20:
+                y_min = math.floor(min_v / 10) * 10
+                y_max = y_min + 100
+
+        y_shift = y_min - 10
+        curve_start = 35 + y_shift
+        curve_end = 85 + y_shift
+
+        for val in range(curve_start, curve_end + 5, 5):
+            c_vals = ref_50 + (val - 50)
+            if np.any((c_vals >= y_min) & (c_vals <= y_max)):
+                ax.plot(x_ticks_curve, c_vals, color='black', linewidth=0.8)
+                ax.text(x_ticks_curve[-1] + 0.1, c_vals[-1], f"{curve_label_prefix}{val}", va='center', ha='left',
+                        fontsize=10)
+    else:
+        x_labels = ['63', '125', '250', '500', '1k', '2k', '4k']
+        x_ticks = np.arange(7)
+        x_ticks_curve = np.arange(1, 7)
+        ref_50 = np.array([35, 42.5, 50, 55, 60, 60])
+        n_intervals = 6
+        ax.set_ylabel('音圧レベル差 (dB)')
+
+        if is_jis:
+            m_intervals = 8
+            y_min, y_max = 0, 80
+            curve_label_prefix = 'Dr-'
+            for val in range(30, 65, 5):
+                c_vals = ref_50 + (val - 50)
+                if np.any((c_vals >= y_min) & (c_vals <= y_max)):
+                    ax.plot(x_ticks_curve, c_vals, color='black', linewidth=0.8)
+                    ax.text(x_ticks_curve[-1] + 0.1, c_vals[-1], f"{curve_label_prefix}{val}", va='center', ha='left',
+                            fontsize=10)
+        else:
+            m_intervals = 9
+            y_min, y_max = 0, 90
+            curve_label_prefix = 'D-'
+            aij_curves = {
+                'D-15': np.array([10., 12.5, 15., 15., 15., 15.]),
+                'D-20': np.array([10., 15., 20., 20., 20., 20.]),
+                'D-25': np.array([10., 17.5, 25., 25., 25., 25.]),
+                'D-30-Ⅱ': np.array([15., 22.5, 30., 30., 30., 30.]),
+                'D-30-Ⅰ': np.array([15., 22.5, 30., 35., 35., 35.]),
+                'D-30': np.array([15., 22.5, 30., 35., 40., 40.]),
+                'D-35': np.array([20., 27.5, 35., 40., 45., 45.]),
+                'D-40': np.array([25., 32.5, 40., 45., 50., 50.]),
+                'D-45': np.array([30., 37.5, 45., 50., 55., 55.]),
+                'D-50': np.array([35., 42.5, 50., 55., 60., 60.]),
+                'D-55': np.array([40., 47.5, 55., 60., 65., 65.]),
+                'D-60': np.array([45., 52.5, 60., 65., 70., 70.]),
+                'D-65': np.array([50., 57.5, 65., 70., 75., 75.]),
+                'D-70': np.array([55., 62.5, 70., 75., 80., 80.]),
+                'D-75': np.array([60., 67.5, 75., 80., 85., 85.]),
+                'D-80': np.array([65., 72.5, 80., 85., 85., 85.]),
+                'D-85': np.array([70., 77.5, 85., 85., 85., 85.])
+            }
+            for lbl, c_vals in aij_curves.items():
+                if np.any((c_vals >= y_min) & (c_vals <= y_max)):
+                    ax.plot(x_ticks_curve, c_vals, color='black', linewidth=0.8)
+                    label_y = c_vals[-1]
+                    if lbl in ['D-80', 'D-85']:
+                        ax.text(0.5, c_vals[0], lbl, va='center', ha='center', fontsize=10, fontweight='bold')
+                    else:
+                        if lbl == 'D-75': label_y = 83
+                        ax.text(x_ticks_curve[-1] + 0.1, label_y, lbl, va='center', ha='left', fontsize=10)
+
+    # 複数データの折れ線描画
+    cmap = plt.get_cmap("tab10")
+    for i, item in enumerate(items_list):
+        vals = item["_raw_values"]
+        sn_mask = np.array(item["_sn_mask"])
+
+        if not is_floor:
+            vals = vals[1:]
+            sn_mask = sn_mask[1:]
+
+        valid_mask = ~sn_mask
+        invalid_mask = sn_mask
+        vals_arr = np.array(vals)
+        color = cmap(i % 10)
+
+        # 凡例用のラベル
+        line_label = f"{item['測定番号']}"
+        ax.plot(x_ticks, vals, color=color, linewidth=2.0, label=line_label, zorder=2)
+
+        if np.any(valid_mask):
+            ax.plot(x_ticks[valid_mask], vals_arr[valid_mask], marker='o', linestyle='', color=color,
+                    markerfacecolor=color, markersize=6, zorder=3)
+        if np.any(invalid_mask):
+            ax.plot(x_ticks[invalid_mask], vals_arr[invalid_mask], marker='o', linestyle='', color=color,
+                    markerfacecolor='white', markeredgewidth=1.5, markersize=6, zorder=3)
+
+        for j, v in enumerate(vals):
+            ax.text(j + 0.15, v, f"{int(round_half_up(v))}", color=color, fontsize=9, va='center')
+
+    ax.set_xticks(x_ticks)
+    ax.set_xticklabels(x_labels)
+    ax.set_xlim(0, n_intervals + 0.8)
+    ax.set_ylim(y_min, y_max)
+    ax.set_yticks(np.arange(y_min, y_max + 1, 10))
+    ax.grid(True, which='both', axis='both', color='gray', linestyle='-', linewidth=0.5)
+    ax.set_xlabel('オクターブバンド中心周波数(Hz)')
+    ax.set_box_aspect((m_intervals * 4) / (n_intervals * 3))
+
+    ax.set_title(f"【比較】{mode}", pad=15, fontweight='bold')
+    # 凡例をグラフの外側右上に配置
+    ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
     plt.tight_layout()
     buf = io.BytesIO()
@@ -468,6 +597,7 @@ if uploaded_files:
                     freq_labels = ["31.5Hz", "63Hz", "125Hz", "250Hz", "500Hz", "1kHz", "2kHz", "4kHz"]
                     allowance = 2 if st.session_state["allow_2db"] else 0
                     is_jis = "JIS" in eval_method
+                    st.session_state.is_jis = is_jis  # 比較グラフ生成用に保持
                     REF_L50 = [73, 63, 56, 50, 47, 46, 46]
                     REF_D50 = [35, 42.5, 50, 55, 60, 60]
 
@@ -539,7 +669,6 @@ if uploaded_files:
                         if "床衝撃音" in mode:
                             if not measured_vals: continue
 
-                            # 補正前の元データでS/N比（<6dB）を判定
                             raw_src_groups = {}
                             source_groups = {}
                             for role, vals in measured_vals:
@@ -584,7 +713,6 @@ if uploaded_files:
                             unrounded_L_nums = [m - ref + 50 for m, ref in zip(eval_comp, eval_ref)]
                             L_nums = [round_half_up(x) for x in unrounded_L_nums]
 
-                            # S/N < 6dB を除外した評価値の算出
                             valid_L_nums = [num for i, num in enumerate(L_nums) if not sn_mask_sliced[i]]
 
                             if valid_L_nums:
@@ -617,7 +745,6 @@ if uploaded_files:
                         elif "室間" in mode:
                             if not src_vals or not recv_vals: continue
 
-                            # 補正前の元データでS/N比（<6dB）を判定
                             raw_recv_mean = energy_mean(recv_vals)
                             sn_mask_full = (raw_recv_mean - bg_mean) < 6
 
@@ -642,7 +769,6 @@ if uploaded_files:
                             unrounded_D_nums = [m - ref + 50 for m, ref in zip(eval_comp, eval_ref)]
                             D_nums = [round_half_up(x) for x in unrounded_D_nums]
 
-                            # S/N < 6dB を除外した評価値の算出
                             valid_D_nums = [num for i, num in enumerate(D_nums) if not sn_mask_sliced[i]]
 
                             if valid_D_nums:
@@ -694,6 +820,27 @@ if uploaded_files:
                                                 "決定周波数"] + freq_labels
                                 summary_dfs[title] = df_group[cols_to_show]
 
+                        # --- 画像生成（HTML埋め込み・画面表示用） ---
+                        individual_figs = {}
+                        for r in results_data:
+                            if "_raw_values" in r:
+                                mode_key = r["測定種別"]
+                                b64_img = generate_graph_base64(
+                                    mode=mode_key,
+                                    is_jis=is_jis,
+                                    case_name=r["測定番号"],
+                                    src_room=r["音源室"],
+                                    recv_room=r["受音室"],
+                                    values=r["_raw_values"],
+                                    sn_mask=r["_sn_mask"],
+                                    grade_str=r["遮音等級"],
+                                    det_freq=r["決定周波数"],
+                                    eval_num=r["評価数"]
+                                )
+                                if mode_key not in individual_figs:
+                                    individual_figs[mode_key] = []
+                                individual_figs[mode_key].append(b64_img)
+
                         # 速報Excel生成
                         output_excel = io.BytesIO()
                         with pd.ExcelWriter(output_excel, engine='xlsxwriter') as writer:
@@ -725,7 +872,7 @@ if uploaded_files:
                             worksheet.set_column('D:F', 10)
                             worksheet.set_column('G:N', 8)
 
-                        # 速報HTML生成
+                        # 速報HTML生成（表と生成済みグラフの埋め込み）
                         html_content = """<html><head><meta charset="utf-8"><title>遮音性能 速報レポート</title><style>
                             body { font-family: "Meiryo", "MS Gothic", sans-serif; padding: 20px; color: #333; font-size: 12px; }
                             h2 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; font-size: 18px; }
@@ -744,22 +891,9 @@ if uploaded_files:
                                 html_content += f"<h3>{title}</h3>\n"
                                 html_content += df_summary.to_html(index=False, border=0, justify='center')
 
-                                # 対応するグラフの生成
                                 html_content += "<div class='graph-container'>"
-                                for r in results_data:
-                                    if r["測定種別"] == mode_key and "_raw_values" in r:
-                                        b64_img = generate_graph_base64(
-                                            mode=mode_key,
-                                            is_jis=is_jis,
-                                            case_name=r["測定番号"],
-                                            src_room=r["音源室"],
-                                            recv_room=r["受音室"],
-                                            values=r["_raw_values"],
-                                            sn_mask=r["_sn_mask"],
-                                            grade_str=r["遮音等級"],
-                                            det_freq=r["決定周波数"],
-                                            eval_num=r["評価数"]
-                                        )
+                                if mode_key in individual_figs:
+                                    for b64_img in individual_figs[mode_key]:
                                         html_content += f"<div class='graph-card'><img src='data:image/png;base64,{b64_img}' style='width: 450px; max-width: 100%;'></div>"
                                 html_content += "</div>\n"
 
@@ -774,18 +908,70 @@ if uploaded_files:
                         # セッションへ保存
                         st.session_state.results_data = results_data
                         st.session_state.summary_dfs = summary_dfs
+                        st.session_state.individual_figs = individual_figs
                         st.session_state.excel_data = output_excel.getvalue()
                         st.session_state.html_content = html_content.encode('utf-8')
                         st.session_state.macro_data = macro_csv_data.encode('cp932')
                         st.session_state.calc_done = True
                         st.rerun()
 
-        # --- 計算結果表示（セッションから読み出し） ---
+        # --- 計算結果・グラフの画面表示 ---
         if st.session_state.calc_done:
             st.write("### 📊 計算結果（速報）")
             for title, df_summary in st.session_state.summary_dfs.items():
                 st.write(f"#### {title}")
                 st.dataframe(df_summary, hide_index=True)
+
+            st.markdown("---")
+            st.write("### 📈 現場確認用 比較グラフ（画面表示のみ）")
+
+            mode_order = [
+                ("室間音圧レベル差(壁)", "空気遮音性能結果 (壁)", "D数"),
+                ("室間音圧レベル差(床)", "空気遮音性能結果 (床)", "D数"),
+                ("軽量床衝撃音", "床衝撃音遮断性能 (軽量)", "L数"),
+                ("重量床衝撃音(1)", "床衝撃音遮断性能 (重量[タイヤ])", "L数"),
+                ("重量床衝撃音(2)", "床衝撃音遮断性能 (重量[ボール])", "L数")
+            ]
+
+            comparison_modes = []
+            for mode_key, title, _ in mode_order:
+                items = [r for r in st.session_state.results_data if r["測定種別"] == mode_key and "_raw_values" in r]
+                if items:
+                    comparison_modes.append((mode_key, items))
+
+            if comparison_modes:
+                tabs = st.tabs([mode for mode, _ in comparison_modes])
+                for i, (mode_key, items) in enumerate(comparison_modes):
+                    with tabs[i]:
+                        case_names = [item["測定番号"] for item in items]
+                        selected_cases = st.multiselect(
+                            f"【{mode_key}】 グラフに表示する測定データを選択",
+                            options=case_names,
+                            default=case_names,
+                            key=f"ms_{mode_key}"
+                        )
+
+                        selected_items = [item for item in items if item["測定番号"] in selected_cases]
+
+                        if selected_items:
+                            comp_img = generate_comparison_graph_base64(mode_key, st.session_state.is_jis,
+                                                                        selected_items)
+                            col1, col2, col3 = st.columns([1, 2, 1])
+                            with col2:
+                                st.image(f"data:image/png;base64,{comp_img}", use_container_width=True)
+                        else:
+                            st.info("データが選択されていません。上の入力欄から表示したいデータを選択してください。")
+
+            st.markdown("---")
+            with st.expander("📉 個別グラフのプレビュー（※HTMLに出力されるグラフと同じものです）"):
+                if "individual_figs" in st.session_state:
+                    for mode_key, _, _ in mode_order:
+                        if mode_key in st.session_state.individual_figs:
+                            st.write(f"**{mode_key}**")
+                            cols = st.columns(3)
+                            for i, b64_img in enumerate(st.session_state.individual_figs[mode_key]):
+                                with cols[i % 3]:
+                                    st.image(f"data:image/png;base64,{b64_img}", use_container_width=True)
 
             st.markdown("---")
             st.write("### 📥 ダウンロード")
@@ -797,7 +983,7 @@ if uploaded_files:
                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                    use_container_width=True)
             with col_dl2:
-                st.download_button("📄 速報一覧をHTMLでダウンロード（PDF印刷用）", data=st.session_state.html_content,
+                st.download_button("📄 グラフ付きHTMLでダウンロード（PDF印刷用）", data=st.session_state.html_content,
                                    file_name=f"{date_str}_遮音性能_速報一覧.html", mime="text/html",
                                    use_container_width=True)
             with col_dl3:
