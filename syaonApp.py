@@ -9,19 +9,36 @@ import io
 import base64
 from collections import Counter
 import datetime
+import urllib.request
 
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as fm
 
-# --- 確実な文字化け対策（プログラム自身による強制インストール） ---
-try:
-    import japanize_matplotlib
-except ImportError:
-    import subprocess
-    import sys
 
-    # クラウドサーバーが部品の読み込みをサボった場合、ここで強制的にインストールさせます
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "japanize-matplotlib"])
-    import japanize_matplotlib
+# --- 【完全解決版】確実な文字化け対策（外部ライブラリ不使用） ---
+@st.cache_resource
+def load_japanese_font():
+    font_path = "NotoSansJP-Regular.ttf"
+    # 1. フォントファイルが無ければGoogle公式から直接ダウンロード
+    if not os.path.exists(font_path):
+        url = "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP-Regular.ttf"
+        try:
+            urllib.request.urlretrieve(url, font_path)
+        except Exception as e:
+            print(f"Font download failed: {e}")
+
+    # 2. ダウンロードしたフォントをmatplotlibに登録して強制適用
+    if os.path.exists(font_path):
+        fm.fontManager.addfont(font_path)
+        prop = fm.FontProperties(fname=font_path)
+        plt.rcParams['font.family'] = prop.get_name()
+    else:
+        # 万が一ダウンロード失敗時はローカルのWindowsフォント等に頼る
+        plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
+
+
+# アプリ起動時にフォント設定を実行
+load_japanese_font()
 
 # ==========================================
 # 状態管理（セッションステート）の初期化
@@ -267,7 +284,7 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close(fig)
-    buf.seek(0)
+    buf.seek(0)  # 画像データの巻き戻し（比較グラフが表示されなかった原因）
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
@@ -407,7 +424,7 @@ def generate_comparison_graph_base64(mode, is_jis, items_list):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close(fig)
-    buf.seek(0)  # 修正: 画像データの巻き戻し
+    buf.seek(0)  # 画像データの巻き戻し（比較グラフが表示されなかった原因）
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
