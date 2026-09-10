@@ -13,9 +13,14 @@ import datetime
 # グラフ描画用・文字化け対策（グローバル適用）
 import matplotlib.pyplot as plt
 
+# クラウド環境での文字化けを防ぐためのライブラリ読み込み
+HAS_JAPANIZE = False
 try:
     import japanize_matplotlib
+
+    HAS_JAPANIZE = True
 except ImportError:
+    # ローカル用フォールバック
     plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
 
 # ==========================================
@@ -107,7 +112,6 @@ def clear_data():
     st.session_state.excel_data = None
     st.session_state.html_content = None
     st.session_state.macro_data = None
-    if "comparison_figs" in st.session_state: del st.session_state.comparison_figs
     if "individual_figs" in st.session_state: del st.session_state.individual_figs
 
 
@@ -411,6 +415,11 @@ def generate_comparison_graph_base64(mode, is_jis, items_list):
 # ==========================================
 st.set_page_config(page_title="遮音性能判定アプリ", layout="wide")
 st.title("遮音性能・床衝撃音 判定アプリ")
+
+# ⚠️ requirements.txt 漏れ等の警告表示
+if not HAS_JAPANIZE:
+    st.error(
+        "⚠️ グラフの日本語フォント拡張機能が読み込めませんでした。クラウド環境では文字化けします。GitHubの `requirements.txt` に `japanize-matplotlib` が記載されているか確認してください。")
 
 st.markdown("""
 ### 📌 自動判定のルール
