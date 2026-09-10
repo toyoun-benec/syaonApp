@@ -9,36 +9,15 @@ import io
 import base64
 from collections import Counter
 import datetime
-import urllib.request
 
-# グラフ描画用モジュール
 import matplotlib.pyplot as plt
-import matplotlib.font_manager as font_manager
 
-
-# --- 確実な文字化け対策（Googleフォントを自動ダウンロード） ---
-@st.cache_resource
-def setup_japanese_font():
-    font_path = "NotoSansJP-Regular.ttf"
-    # サーバー内にフォントが無ければGoogle公式からダウンロード
-    if not os.path.exists(font_path):
-        try:
-            url = "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP-Regular.ttf"
-            urllib.request.urlretrieve(url, font_path)
-        except Exception:
-            pass
-
-    # ダウンロードしたフォントをグラフに強制適用
-    if os.path.exists(font_path):
-        font_manager.fontManager.addfont(font_path)
-        prop = font_manager.FontProperties(fname=font_path)
-        plt.rcParams['font.family'] = prop.get_name()
-    else:
-        plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
-
-
-# アプリ起動時に1回だけ実行
-setup_japanese_font()
+# --- 確実な文字化け対策 ---
+# クラウド（japanize_matplotlib有）とローカル（無）を自動判別し、設定を上書きしない
+try:
+    import japanize_matplotlib
+except ImportError:
+    plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
 
 # ==========================================
 # 状態管理（セッションステート）の初期化
@@ -284,7 +263,7 @@ def generate_graph_base64(mode, is_jis, case_name, src_room, recv_room, values, 
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close(fig)
-    buf.seek(0)
+    buf.seek(0)  # 修正: 画像データの巻き戻し
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
@@ -424,6 +403,7 @@ def generate_comparison_graph_base64(mode, is_jis, items_list):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close(fig)
+    buf.seek(0)  # 修正: 画像データの巻き戻し
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
@@ -893,7 +873,7 @@ if uploaded_files:
                             worksheet.set_column('D:F', 10)
                             worksheet.set_column('G:N', 8)
 
-                        # 速報HTML生成（表と生成済みグラフの埋め込み）
+                        # 速報HTML生成
                         html_content = """<html><head><meta charset="utf-8"><title>遮音性能 速報レポート</title><style>
                             body { font-family: "Noto Sans CJK JP", "Meiryo", "MS Gothic", sans-serif; padding: 20px; color: #333; font-size: 12px; }
                             h2 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; font-size: 18px; }
