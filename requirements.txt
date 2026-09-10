@@ -4,3 +4,4 @@ numpy
 openpyxl
 matplotlib
 japanize-matplotlib
+xlsxwriter
