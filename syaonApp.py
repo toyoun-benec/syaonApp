@@ -9,19 +9,36 @@ import io
 import base64
 from collections import Counter
 import datetime
+import urllib.request
 
-# グラフ描画用・文字化け対策（グローバル適用）
+# グラフ描画用モジュール
 import matplotlib.pyplot as plt
+import matplotlib.font_manager as font_manager
 
-# クラウド環境での文字化けを防ぐためのライブラリ読み込み
-HAS_JAPANIZE = False
-try:
-    import japanize_matplotlib
 
-    HAS_JAPANIZE = True
-except ImportError:
-    # ローカル用フォールバック
-    plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
+# --- 確実な文字化け対策（Googleフォントを自動ダウンロード） ---
+@st.cache_resource
+def setup_japanese_font():
+    font_path = "NotoSansJP-Regular.ttf"
+    # サーバー内にフォントが無ければGoogle公式からダウンロード
+    if not os.path.exists(font_path):
+        try:
+            url = "https://github.com/google/fonts/raw/main/ofl/notosansjp/NotoSansJP-Regular.ttf"
+            urllib.request.urlretrieve(url, font_path)
+        except Exception:
+            pass
+
+    # ダウンロードしたフォントをグラフに強制適用
+    if os.path.exists(font_path):
+        font_manager.fontManager.addfont(font_path)
+        prop = font_manager.FontProperties(fname=font_path)
+        plt.rcParams['font.family'] = prop.get_name()
+    else:
+        plt.rcParams['font.family'] = ['Meiryo', 'Yu Gothic', 'MS Gothic', 'sans-serif']
+
+
+# アプリ起動時に1回だけ実行
+setup_japanese_font()
 
 # ==========================================
 # 状態管理（セッションステート）の初期化
@@ -112,6 +129,7 @@ def clear_data():
     st.session_state.excel_data = None
     st.session_state.html_content = None
     st.session_state.macro_data = None
+    if "comparison_figs" in st.session_state: del st.session_state.comparison_figs
     if "individual_figs" in st.session_state: del st.session_state.individual_figs
 
 
@@ -406,7 +424,6 @@ def generate_comparison_graph_base64(mode, is_jis, items_list):
     buf = io.BytesIO()
     plt.savefig(buf, format='png', dpi=100)
     plt.close(fig)
-    buf.seek(0)
     return base64.b64encode(buf.read()).decode('utf-8')
 
 
@@ -415,11 +432,6 @@ def generate_comparison_graph_base64(mode, is_jis, items_list):
 # ==========================================
 st.set_page_config(page_title="遮音性能判定アプリ", layout="wide")
 st.title("遮音性能・床衝撃音 判定アプリ")
-
-# ⚠️ requirements.txt 漏れ等の警告表示
-if not HAS_JAPANIZE:
-    st.error(
-        "⚠️ グラフの日本語フォント拡張機能が読み込めませんでした。クラウド環境では文字化けします。GitHubの `requirements.txt` に `japanize-matplotlib` が記載されているか確認してください。")
 
 st.markdown("""
 ### 📌 自動判定のルール
@@ -883,7 +895,7 @@ if uploaded_files:
 
                         # 速報HTML生成（表と生成済みグラフの埋め込み）
                         html_content = """<html><head><meta charset="utf-8"><title>遮音性能 速報レポート</title><style>
-                            body { font-family: "Meiryo", "MS Gothic", sans-serif; padding: 20px; color: #333; font-size: 12px; }
+                            body { font-family: "Noto Sans CJK JP", "Meiryo", "MS Gothic", sans-serif; padding: 20px; color: #333; font-size: 12px; }
                             h2 { text-align: center; border-bottom: 2px solid #333; padding-bottom: 10px; margin-bottom: 30px; font-size: 18px; }
                             h3 { margin-top: 40px; text-align: center; font-size: 16px; border-left: 5px solid #333; padding-left: 10px; }
                             table { border-collapse: collapse; width: 100%; margin: 0 auto 30px auto; table-layout: fixed; }
